@@ -1,0 +1,93 @@
+name: childcarehub_flutter
+description: "Production-grade pediatric consultation app with Firebase backend"
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.5.4
+  flutter: ">=3.24.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  # Firebase
+  firebase_core: ^3.6.0
+  firebase_auth: ^5.3.1
+  cloud_firestore: ^5.4.4
+  firebase_storage: ^12.3.3
+  firebase_messaging: ^15.1.3
+  cloud_functions: ^5.1.3
+  firebase_crashlytics: ^4.1.3
+  firebase_analytics: ^11.3.3
+
+  # State Management
+  flutter_riverpod: ^2.6.1
+
+  # UI/UX
+  cupertino_icons: ^1.0.8
+  flutter_animate: ^4.5.2
+  cached_network_image: ^3.4.1
+  shimmer: ^3.0.0
+  marquee: ^2.3.0
+  flutter_spinkit: ^5.2.1
+
+  # Navigation
+  go_router: ^15.2.4
+
+  # Video Calling (ZegoCloud)
+  zego_uikit_prebuilt_call: ^4.6.2
+  zego_uikit_signaling_plugin: ^2.7.3
+
+  # Forms & Validation
+  flutter_form_builder: ^10.0.1
+  form_builder_validators: ^11.2.0
+
+  # Utilities
+  uuid: ^4.5.1
+  shared_preferences: ^2.3.2
+  image_picker: ^1.1.2
+  permission_handler: ^11.3.1
+
+  # Local Storage & Security
+  flutter_secure_storage: ^9.2.2
+  local_auth: ^2.3.0
+
+  # Notifications
+  flutter_local_notifications: ^19.3.0
+
+  # Charts & Analytics
+  fl_chart: ^1.0.0
+
+  # PDF Generation
+  pdf: ^3.11.1
+  printing: ^5.13.3
+
+  # HTTP & Connectivity
+  http: ^1.2.2
+  connectivity_plus: ^6.0.5
+  google_sign_in: ^6.2.1
+  
+  # Environment & Logging
+  flutter_dotenv: ^5.2.1
+  logger: ^2.4.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+  build_runner: ^2.4.12
+  mockito: ^5.4.4
+  integration_test:
+    sdk: flutter
+
+flutter:
+  uses-material-design: true
+  
+  assets:
+    - assets/images/
+    - assets/icons/
+    - .env
+    - .env.development
+    - .env.staging
+    - .env.production

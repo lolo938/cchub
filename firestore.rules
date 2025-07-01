@@ -1,0 +1,250 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // ====================
+    // HELPER FUNCTIONS
+    // ====================
+    
+    // Check if user is authenticated
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+    
+    // Get user role from user document
+    function getUserRole(userId) {
+      return get(/databases/$(database)/documents/users/$(userId)).data.role;
+    }
+    
+    // Check if user is admin
+    function isAdmin() {
+      return isAuthenticated() && getUserRole(request.auth.uid) == 'ADMIN';
+    }
+    
+    // Check if user is doctor
+    function isDoctor() {
+      return isAuthenticated() && getUserRole(request.auth.uid) == 'DOCTOR';
+    }
+    
+    // Check if user is parent
+    function isParent() {
+      return isAuthenticated() && getUserRole(request.auth.uid) == 'PARENT';
+    }
+    
+    // Check if user owns the resource
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+    
+    // Check if consultation involves the user (as parent or doctor)
+    function isConsultationParticipant(consultation) {
+      return isAuthenticated() && 
+             (request.auth.uid == consultation.parentId || 
+              request.auth.uid == consultation.doctorId);
+    }
+    
+    // Validate user role changes (only admin can change roles)
+    function isValidRoleChange(data) {
+      return !('role' in data) || isAdmin();
+    }
+    
+    // Check if user can modify financial data (only system/admin)
+    function canModifyFinancialData() {
+      return isAdmin();
+    }
+    
+    // ====================
+    // USERS COLLECTION
+    // ====================
+    
+    match /users/{userId} {
+      // Read: Users can read their own profile, doctors can read basic info for consultations
+      allow read: if isOwner(userId) || 
+                     isAdmin() ||
+                     (isDoctor() && exists(/databases/$(database)/documents/consultations/$(userId)));
+      
+      // Create: Only during sign up with valid initial data
+      allow create: if isAuthenticated() && 
+                       isOwner(userId) && 
+                       request.resource.data.role == 'PARENT' &&
+                       request.resource.data.isActive == true &&
+                       request.resource.data.walletBalance == 0.0;
+      
+      // Update: Users can update their own profile (except role and financial data)
+      allow update: if isOwner(userId) && 
+                       isValidRoleChange(request.resource.data) &&
+                       request.resource.data.walletBalance == resource.data.walletBalance;
+      
+      // Delete: Only admin can delete users
+      allow delete: if isAdmin();
+      
+      // Children subcollection
+      match /children/{childId} {
+        // Read: Only parent can read their children
+        allow read: if isOwner(userId);
+        
+        // Write: Only parent can manage their children
+        allow write: if isOwner(userId) && 
+                        request.resource.data.parentId == userId;
+        
+        // Delete: Only parent can delete their children
+        allow delete: if isOwner(userId);
+      }
+      
+      // Wallet subcollection
+      match /wallet/{walletDoc} {
+        // Read: Only owner and admin can read wallet info
+        allow read: if isOwner(userId) || isAdmin();
+        
+        // Write: Only system/admin can modify wallet data directly
+        allow write: if isAdmin();
+        
+        // Transactions subcollection
+        match /transactions/{transactionId} {
+          // Read: Only owner and admin can read transactions
+          allow read: if isOwner(userId) || isAdmin();
+          
+          // Create: System can create transactions (via cloud functions)
+          allow create: if isAdmin() && 
+                          request.resource.data.walletId == walletDoc;
+          
+          // Update: Only admin can update transaction status
+          allow update: if isAdmin();
+          
+          // Delete: No direct deletion allowed
+          allow delete: if false;
+        }
+      }
+      
+      // User notifications subcollection
+      match /notifications/{notificationId} {
+        // Read: Only owner can read their notifications
+        allow read: if isOwner(userId);
+        
+        // Create: System and admin can create notifications
+        allow create: if isAdmin() &&
+                        request.resource.data.userId == userId;
+        
+        // Update: Only owner can mark as read
+        allow update: if isOwner(userId) && 
+                         request.resource.data.diff(resource.data).affectedKeys()
+                         .hasOnly(['isRead', 'readAt']);
+        
+        // Delete: Owner can delete notifications
+        allow delete: if isOwner(userId);
+      }
+    }
+    
+    // ====================
+    // DOCTORS COLLECTION
+    // ====================
+    
+    match /doctors/{doctorId} {
+      // Read: Everyone can read active doctor profiles for discovery
+      allow read: if isAuthenticated() && resource.data.isActive == true;
+      
+      // Read (admin): Admin can read all doctor profiles
+      allow read: if isAdmin();
+      
+      // Create: Only admin can create doctor profiles
+      allow create: if isAdmin() && 
+                       request.resource.data.isActive == true &&
+                       request.resource.data.createdBy == request.auth.uid;
+      
+      // Update: Doctor can update own profile (limited fields) or admin can update any
+      allow update: if (isOwner(doctorId) && 
+                        request.resource.data.diff(resource.data).affectedKeys()
+                        .hasOnly(['photoUrl', 'about', 'availability', 'isOnline', 'languagesSpoken'])) ||
+                       isAdmin();
+      
+      // Delete: Only admin can delete doctors
+      allow delete: if isAdmin();
+      
+      // Reserved slots subcollection
+      match /reservedSlots/{slotId} {
+        // Read: Only the doctor and admin can read reserved slots
+        allow read: if isOwner(doctorId) || isAdmin();
+        
+        // Write: Only the doctor and system can manage slots
+        allow write: if isOwner(doctorId) || isAdmin();
+        
+        // Delete: Only the doctor and admin can delete slots
+        allow delete: if isOwner(doctorId) || isAdmin();
+      }
+    }
+    
+    // ====================
+    // CONSULTATIONS COLLECTION
+    // ====================
+    
+    match /consultations/{consultationId} {
+      // Read: Only participants (parent, doctor) and admin can read
+      allow read: if isAdmin() || 
+                     isConsultationParticipant(resource.data);
+      
+      // Create: Only parents can create consultations
+      allow create: if isParent() && 
+                       request.resource.data.parentId == request.auth.uid &&
+                       request.resource.data.status == 'PENDING';
+      
+      // Update: Participants can update status, admin can update any field
+      allow update: if isAdmin() ||
+                       (isConsultationParticipant(resource.data) &&
+                        request.resource.data.diff(resource.data).affectedKeys()
+                        .hasOnly(['status', 'acceptedAt', 'completedAt', 'rejectionReason', 'zegoCallId']));
+      
+      // Delete: Only admin can delete consultations
+      allow delete: if isAdmin();
+    }
+    
+    // ====================
+    // APP CONFIGURATION
+    // ====================
+    
+    match /appConfig/{configId} {
+      // Read: All authenticated users can read config
+      allow read: if isAuthenticated();
+      
+      // Write: Only admin can modify configuration
+      allow write: if isAdmin();
+    }
+    
+    // ====================
+    // GLOBAL NOTIFICATIONS
+    // ====================
+    
+    match /notifications/{notificationId} {
+      // Read: All authenticated users can read global notifications
+      allow read: if isAuthenticated();
+      
+      // Write: Only admin can create/manage global notifications
+      allow write: if isAdmin();
+    }
+    
+    // ====================
+    // ANALYTICS & REPORTS (Admin only)
+    // ====================
+    
+    match /analytics/{document=**} {
+      allow read, write: if isAdmin();
+    }
+    
+    match /reports/{document=**} {
+      allow read, write: if isAdmin();
+    }
+    
+    // ====================
+    // SYSTEM COLLECTIONS (Cloud Functions only)
+    // ====================
+    
+    match /systemEvents/{eventId} {
+      allow read: if isAdmin();
+      allow write: if false; // Only cloud functions can write
+    }
+    
+    match /auditLogs/{logId} {
+      allow read: if isAdmin();
+      allow write: if false; // Only cloud functions can write
+    }
+  }
+}
