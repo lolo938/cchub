@@ -1,0 +1,140 @@
+name: Deploy to App Stores
+
+on:
+  release:
+    types: [published]
+
+jobs:
+  deploy-android:
+    name: Deploy to Google Play
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Setup Java
+      uses: actions/setup-java@v3
+      with:
+        distribution: 'zulu'
+        java-version: '11'
+        
+    - name: Setup Flutter
+      uses: subosito/flutter-action@v2
+      with:
+        flutter-version: '3.24.0'
+        channel: 'stable'
+        
+    - name: Create environment file
+      run: |
+        echo "APP_NAME=ChildcareHub" > .env.production
+        echo "APP_VERSION=1.0.0" >> .env.production
+        echo "ENVIRONMENT=production" >> .env.production
+        echo "FIREBASE_API_KEY=${{ secrets.PROD_FIREBASE_API_KEY }}" >> .env.production
+        echo "FIREBASE_APP_ID=${{ secrets.PROD_FIREBASE_APP_ID }}" >> .env.production
+        echo "FIREBASE_MESSAGING_SENDER_ID=${{ secrets.PROD_FIREBASE_MESSAGING_SENDER_ID }}" >> .env.production
+        echo "FIREBASE_PROJECT_ID=${{ secrets.PROD_FIREBASE_PROJECT_ID }}" >> .env.production
+        echo "FIREBASE_AUTH_DOMAIN=${{ secrets.PROD_FIREBASE_AUTH_DOMAIN }}" >> .env.production
+        echo "FIREBASE_STORAGE_BUCKET=${{ secrets.PROD_FIREBASE_STORAGE_BUCKET }}" >> .env.production
+        echo "FIREBASE_MEASUREMENT_ID=${{ secrets.PROD_FIREBASE_MEASUREMENT_ID }}" >> .env.production
+        echo "FIREBASE_ANDROID_APP_ID=${{ secrets.PROD_FIREBASE_ANDROID_APP_ID }}" >> .env.production
+        echo "FIREBASE_IOS_APP_ID=${{ secrets.PROD_FIREBASE_IOS_APP_ID }}" >> .env.production
+        echo "FIREBASE_IOS_BUNDLE_ID=com.childcarehub.childcarehubflutter" >> .env.production
+        echo "ZEGO_APP_ID=${{ secrets.PROD_ZEGO_APP_ID }}" >> .env.production
+        echo "ZEGO_APP_SIGN=${{ secrets.PROD_ZEGO_APP_SIGN }}" >> .env.production
+        echo "API_BASE_URL=https://api.childcarehub.com" >> .env.production
+        echo "API_TIMEOUT=30000" >> .env.production
+        echo "ENABLE_ANALYTICS=true" >> .env.production
+        echo "ENABLE_CRASH_REPORTING=true" >> .env.production
+        echo "ENABLE_PERFORMANCE_MONITORING=true" >> .env.production
+        echo "ENABLE_DEBUG_LOGGING=false" >> .env.production
+        
+    - name: Create Google Services file
+      run: echo '${{ secrets.GOOGLE_SERVICES_JSON }}' > android/app/google-services.json
+      
+    - name: Create signing key
+      run: |
+        echo '${{ secrets.ANDROID_KEYSTORE }}' | base64 --decode > android/app/upload-keystore.jks
+        echo "MYAPP_RELEASE_STORE_FILE=upload-keystore.jks" > android/key.properties
+        echo "MYAPP_RELEASE_KEY_ALIAS=${{ secrets.ANDROID_KEY_ALIAS }}" >> android/key.properties
+        echo "MYAPP_RELEASE_STORE_PASSWORD=${{ secrets.ANDROID_STORE_PASSWORD }}" >> android/key.properties
+        echo "MYAPP_RELEASE_KEY_PASSWORD=${{ secrets.ANDROID_KEY_PASSWORD }}" >> android/key.properties
+        
+    - name: Get dependencies
+      run: flutter pub get
+      
+    - name: Build App Bundle
+      run: flutter build appbundle --release --dart-define-from-file=.env.production
+      
+    - name: Deploy to Google Play
+      uses: r0adkll/upload-google-play@v1
+      with:
+        serviceAccountJsonPlainText: ${{ secrets.GOOGLE_PLAY_SERVICE_ACCOUNT }}
+        packageName: com.childcarehub.childcarehub_flutter
+        releaseFiles: build/app/outputs/bundle/release/app-release.aab
+        track: internal
+        status: completed
+        
+  deploy-ios:
+    name: Deploy to App Store
+    runs-on: macos-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Setup Flutter
+      uses: subosito/flutter-action@v2
+      with:
+        flutter-version: '3.24.0'
+        channel: 'stable'
+        
+    - name: Create environment file
+      run: |
+        echo "APP_NAME=ChildcareHub" > .env.production
+        echo "APP_VERSION=1.0.0" >> .env.production
+        echo "ENVIRONMENT=production" >> .env.production
+        echo "FIREBASE_API_KEY=${{ secrets.PROD_FIREBASE_API_KEY }}" >> .env.production
+        echo "FIREBASE_APP_ID=${{ secrets.PROD_FIREBASE_APP_ID }}" >> .env.production
+        echo "FIREBASE_MESSAGING_SENDER_ID=${{ secrets.PROD_FIREBASE_MESSAGING_SENDER_ID }}" >> .env.production
+        echo "FIREBASE_PROJECT_ID=${{ secrets.PROD_FIREBASE_PROJECT_ID }}" >> .env.production
+        echo "FIREBASE_AUTH_DOMAIN=${{ secrets.PROD_FIREBASE_AUTH_DOMAIN }}" >> .env.production
+        echo "FIREBASE_STORAGE_BUCKET=${{ secrets.PROD_FIREBASE_STORAGE_BUCKET }}" >> .env.production
+        echo "FIREBASE_MEASUREMENT_ID=${{ secrets.PROD_FIREBASE_MEASUREMENT_ID }}" >> .env.production
+        echo "FIREBASE_ANDROID_APP_ID=${{ secrets.PROD_FIREBASE_ANDROID_APP_ID }}" >> .env.production
+        echo "FIREBASE_IOS_APP_ID=${{ secrets.PROD_FIREBASE_IOS_APP_ID }}" >> .env.production
+        echo "FIREBASE_IOS_BUNDLE_ID=com.childcarehub.childcarehubflutter" >> .env.production
+        echo "ZEGO_APP_ID=${{ secrets.PROD_ZEGO_APP_ID }}" >> .env.production
+        echo "ZEGO_APP_SIGN=${{ secrets.PROD_ZEGO_APP_SIGN }}" >> .env.production
+        echo "API_BASE_URL=https://api.childcarehub.com" >> .env.production
+        echo "API_TIMEOUT=30000" >> .env.production
+        echo "ENABLE_ANALYTICS=true" >> .env.production
+        echo "ENABLE_CRASH_REPORTING=true" >> .env.production
+        echo "ENABLE_PERFORMANCE_MONITORING=true" >> .env.production
+        echo "ENABLE_DEBUG_LOGGING=false" >> .env.production
+        
+    - name: Import Code-Signing Certificates
+      uses: Apple-Actions/import-codesign-certs@v1
+      with:
+        p12-file-base64: ${{ secrets.IOS_CERTIFICATES }}
+        p12-password: ${{ secrets.IOS_CERTIFICATE_PASSWORD }}
+        
+    - name: Download Provisioning Profiles
+      uses: Apple-Actions/download-provisioning-profiles@v1
+      with:
+        bundle-id: com.childcarehub.childcarehubflutter
+        issuer-id: ${{ secrets.APPSTORE_ISSUER_ID }}
+        api-key-id: ${{ secrets.APPSTORE_KEY_ID }}
+        api-private-key: ${{ secrets.APPSTORE_PRIVATE_KEY }}
+        
+    - name: Get dependencies
+      run: flutter pub get
+      
+    - name: Build iOS
+      run: flutter build ios --release --dart-define-from-file=.env.production
+      
+    - name: Build and upload to App Store
+      run: |
+        xcodebuild -workspace ios/Runner.xcworkspace -scheme Runner -configuration Release archive -archivePath build/ios/Runner.xcarchive
+        xcodebuild -exportArchive -archivePath build/ios/Runner.xcarchive -exportOptionsPlist ios/ExportOptions.plist -exportPath build/ios/ipa
+        xcrun altool --upload-app --type ios --file build/ios/ipa/Runner.ipa --username ${{ secrets.APPSTORE_USERNAME }} --password ${{ secrets.APPSTORE_PASSWORD }}
