@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -15,44 +16,68 @@ class DoctorMarquee extends ConsumerStatefulWidget {
 
 class _DoctorMarqueeState extends ConsumerState<DoctorMarquee>
     with SingleTickerProviderStateMixin {
-  late ScrollController _scrollController;
   late AnimationController _animationController;
+  late ScrollController _scrollController;
   bool _isAnimating = true;
+  bool _userScrolling = false;
+  Timer? _resumeTimer;
 
   @override
   void initState() {
     super.initState();
     _scrollController = ScrollController();
     _animationController = AnimationController(
-      duration: const Duration(seconds: 30),
+      duration: const Duration(seconds: 20),
       vsync: this,
-    );
+    )..addListener(_onTick);
     _startAnimation();
   }
 
+  void _onTick() {
+    if (_isAnimating && !_userScrolling && _scrollController.hasClients) {
+      final maxScroll = _scrollController.position.maxScrollExtent;
+      final pixels = _scrollController.offset + 1.2;
+      if (pixels >= maxScroll) {
+        _scrollController.jumpTo(0);
+      } else {
+        _scrollController.jumpTo(pixels);
+      }
+    }
+  }
+
   void _startAnimation() {
-    _animationController.addListener(() {
-      if (_scrollController.hasClients && _isAnimating) {
-        final maxScroll = _scrollController.position.maxScrollExtent;
-        final currentScroll = _animationController.value * maxScroll;
-        _scrollController.jumpTo(currentScroll);
-      }
-    });
+    if (_isAnimating) {
+      _animationController.repeat();
+    }
+  }
 
-    _animationController.addStatusListener((status) {
-      if (status == AnimationStatus.completed && _isAnimating) {
-        _animationController.reset();
-        _animationController.forward();
-      }
-    });
+  void _stopAnimation() {
+    _animationController.stop();
+  }
 
-    _animationController.forward();
+  void _onUserScrollStart() {
+    setState(() {
+      _userScrolling = true;
+      _stopAnimation();
+    });
+    _resumeTimer?.cancel();
+  }
+
+  void _onUserScrollEnd() {
+    _resumeTimer?.cancel();
+    _resumeTimer = Timer(const Duration(seconds: 2), () {
+      setState(() {
+        _userScrolling = false;
+        if (_isAnimating) _startAnimation();
+      });
+    });
   }
 
   @override
   void dispose() {
     _animationController.dispose();
     _scrollController.dispose();
+    _resumeTimer?.cancel();
     super.dispose();
   }
 
@@ -61,133 +86,113 @@ class _DoctorMarqueeState extends ConsumerState<DoctorMarquee>
     final doctorsAsync = ref.watch(doctorMarqueeProvider);
 
     return doctorsAsync.when(
-      data: (doctors) => doctors.isEmpty 
-          ? _buildEmptyState()
-          : _buildMarquee(doctors),
+      data: (doctors) =>
+          doctors.isEmpty ? _buildEmptyState() : _buildMarquee(doctors),
       loading: () => _buildLoadingState(),
       error: (error, _) => _buildErrorState(),
     );
   }
 
   Widget _buildMarquee(List<Doctor> doctors) {
-    return Container(
-      height: 120,
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(AppSizes.borderRadius),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.grey.withOpacity(0.1),
-            blurRadius: 10,
-            offset: const Offset(0, 5),
-          ),
-        ],
-      ),
-      child: Column(
-        children: [
-          Container(
-            padding: const EdgeInsets.symmetric(
-              horizontal: AppSizes.paddingMedium,
-              vertical: AppSizes.paddingSmall,
-            ),
-            decoration: BoxDecoration(
-              color: AppColors.primary.withOpacity(0.1),
-              borderRadius: const BorderRadius.only(
-                topLeft: Radius.circular(AppSizes.borderRadius),
-                topRight: Radius.circular(AppSizes.borderRadius),
-              ),
-            ),
-            child: Row(
-              children: [
-                Icon(
-                  Icons.local_hospital,
-                  color: AppColors.primary,
-                  size: 20,
-                ),
-                const SizedBox(width: AppSizes.spacingSmall),
-                Text(
-                  'Featured Doctors',
-                  style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                    color: AppColors.primary,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-                const Spacer(),
-                GestureDetector(
-                  onTap: () {
-                    setState(() {
-                      _isAnimating = !_isAnimating;
-                      if (_isAnimating) {
-                        _animationController.forward();
-                      } else {
-                        _animationController.stop();
-                      }
-                    });
-                  },
-                  child: Icon(
-                    _isAnimating ? Icons.pause : Icons.play_arrow,
-                    color: AppColors.primary,
-                    size: 20,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          Expanded(
-            child: NotificationListener<ScrollNotification>(
-              onNotification: (notification) {
-                if (notification is ScrollStartNotification) {
-                  _isAnimating = false;
-                  _animationController.stop();
-                } else if (notification is ScrollEndNotification) {
-                  Future.delayed(const Duration(seconds: 2), () {
-                    if (mounted) {
-                      _isAnimating = true;
-                      _animationController.forward();
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final cardWidth = constraints.maxWidth * 0.8;
+        final cardSpacing = 24.0;
+        final totalCards = doctors.length * 2; // duplicate for seamless loop
+        return Container(
+          height: 190,
+          color: Colors.transparent, // Use parent's background
+          child: Stack(
+            children: [
+              // Marquee List
+              Positioned.fill(
+                child: NotificationListener<ScrollNotification>(
+                  onNotification: (notification) {
+                    if (notification is ScrollStartNotification) {
+                      _onUserScrollStart();
+                    } else if (notification is ScrollEndNotification) {
+                      _onUserScrollEnd();
                     }
-                  });
-                }
-                return true;
-              },
-              child: ListView.builder(
-                controller: _scrollController,
-                scrollDirection: Axis.horizontal,
-                padding: const EdgeInsets.symmetric(horizontal: AppSizes.paddingMedium),
-                itemCount: doctors.length * 100, // Infinite scroll effect
-                itemBuilder: (context, index) {
-                  final doctor = doctors[index % doctors.length];
-                  return _buildDoctorCard(doctor);
-                },
+                    return false;
+                  },
+                  child: ClipRect(
+                    child: ListView.builder(
+                      controller: _scrollController,
+                      scrollDirection: Axis.horizontal,
+                      physics: const BouncingScrollPhysics(),
+                      padding: const EdgeInsets.symmetric(horizontal: 16),
+                      itemCount: totalCards,
+                      itemBuilder: (context, index) {
+                        final doctor = doctors[index % doctors.length];
+                        return Container(
+                          width: cardWidth,
+                          margin: EdgeInsets.only(
+                            right: cardSpacing,
+                            top: 24,
+                            bottom: 24,
+                          ),
+                          child: _buildDoctorCard(doctor),
+                        );
+                      },
+                    ),
+                  ),
+                ),
               ),
-            ),
+              // View All Button (top right)
+              Positioned(
+                top: 0,
+                right: 16,
+                child: TextButton(
+                  onPressed: () => context.push('/doctors'),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text('View All', style: TextStyle(color: Colors.white70)),
+                      const SizedBox(width: 4),
+                      Icon(Icons.arrow_forward_ios,
+                          size: 14, color: Colors.white70),
+                    ],
+                  ),
+                  style: TextButton.styleFrom(
+                    foregroundColor: Colors.white,
+                    backgroundColor: Colors.black.withOpacity(0.5),
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                  ),
+                ),
+              ),
+            ],
           ),
-        ],
-      ),
+        );
+      },
     );
   }
 
   Widget _buildDoctorCard(Doctor doctor) {
-    return GestureDetector(
-      onTap: () => context.push('/doctors/${doctor.id}'),
-      child: Container(
-        width: 280,
-        margin: const EdgeInsets.only(
-          right: AppSizes.spacingMedium,
-          top: AppSizes.spacingSmall,
-          bottom: AppSizes.spacingSmall,
-        ),
-        padding: const EdgeInsets.all(AppSizes.paddingMedium),
-        decoration: BoxDecoration(
-          color: Colors.grey.shade50,
-          borderRadius: BorderRadius.circular(AppSizes.borderRadius),
-          border: Border.all(color: Colors.grey.shade200),
-        ),
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: const Color(0xFF1A1A1A),
+        borderRadius: BorderRadius.circular(AppSizes.borderRadius * 1.5),
+        border: Border.all(color: Colors.white.withOpacity(0.1)),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.25),
+            blurRadius: 20,
+            offset: const Offset(0, 8),
+          ),
+        ],
+      ),
+      child: IntrinsicHeight(
         child: Row(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             // Doctor Avatar
             Container(
-              width: 50,
-              height: 50,
+              width: 100,
               decoration: BoxDecoration(
                 borderRadius: BorderRadius.circular(AppSizes.borderRadius),
                 image: DecorationImage(
@@ -196,91 +201,60 @@ class _DoctorMarqueeState extends ConsumerState<DoctorMarquee>
                 ),
               ),
             ),
-            
-            const SizedBox(width: AppSizes.spacingMedium),
-            
+            const SizedBox(width: 16),
             // Doctor Info
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisAlignment: MainAxisAlignment.center,
+                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                 children: [
-                  Text(
-                    doctor.name,
-                    style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                      fontWeight: FontWeight.bold,
-                    ),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
+                  _buildDetailRow(
+                    context,
+                    text: doctor.designation,
+                    isTitle: true,
                   ),
-                  Text(
-                    doctor.specialization,
-                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      color: AppColors.primary,
-                      fontWeight: FontWeight.w500,
-                    ),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
+                  _buildDetailRow(
+                    context,
+                    text: 'Reg: ${doctor.registrationNumber ?? 'N/A'}',
                   ),
-                  const SizedBox(height: AppSizes.spacingXSmall),
-                  Row(
-                    children: [
-                      Icon(
-                        Icons.star,
-                        color: Colors.amber,
-                        size: 16,
-                      ),
-                      const SizedBox(width: 2),
-                      Text(
-                        doctor.rating.toString(),
-                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                          fontWeight: FontWeight.w500,
-                        ),
-                      ),
-                      const SizedBox(width: AppSizes.spacingSmall),
-                      Container(
-                        width: 6,
-                        height: 6,
-                        decoration: BoxDecoration(
-                          color: doctor.isOnline ? AppColors.success : Colors.grey,
-                          shape: BoxShape.circle,
-                        ),
-                      ),
-                      const SizedBox(width: 4),
-                      Text(
-                        doctor.isOnline ? 'Online' : 'Offline',
-                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                          color: doctor.isOnline ? AppColors.success : Colors.grey,
-                          fontWeight: FontWeight.w500,
-                        ),
-                      ),
-                    ],
+                  _buildDetailRow(
+                    context,
+                    text: 'State: ${doctor.state ?? 'N/A'}',
+                  ),
+                  _buildDetailRow(
+                    context,
+                    text: doctor.specialization,
+                    isSpecialization: true,
                   ),
                 ],
               ),
             ),
-            
-            // Consultation Fee
-            Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              crossAxisAlignment: CrossAxisAlignment.end,
-              children: [
-                Text(
-                  '₹${doctor.consultationFee.toInt()}',
-                  style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                    color: AppColors.primary,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-                Text(
-                  'Consultation',
-                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    color: Colors.grey.shade600,
-                  ),
-                ),
-              ],
-            ),
           ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildDetailRow(
+    BuildContext context, {
+    String? text,
+    bool isTitle = false,
+    bool isSpecialization = false,
+  }) {
+    if (text == null || text.isEmpty) {
+      return const SizedBox.shrink();
+    }
+    return Flexible(
+      child: Text(
+        text,
+        maxLines: 2,
+        overflow: TextOverflow.ellipsis,
+        style: TextStyle(
+          fontSize: isTitle ? 18 : 14,
+          fontWeight: isTitle ? FontWeight.bold : FontWeight.normal,
+          color: isSpecialization
+              ? AppColors.primary
+              : Colors.white.withOpacity(isTitle ? 0.9 : 0.7),
         ),
       ),
     );
@@ -324,8 +298,8 @@ class _DoctorMarqueeState extends ConsumerState<DoctorMarquee>
         child: Text(
           'No doctors available',
           style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-            color: Colors.grey.shade600,
-          ),
+                color: Colors.grey.shade600,
+              ),
         ),
       ),
     );
@@ -358,8 +332,8 @@ class _DoctorMarqueeState extends ConsumerState<DoctorMarquee>
             Text(
               'Failed to load doctors',
               style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                color: Colors.grey.shade600,
-              ),
+                    color: Colors.grey.shade600,
+                  ),
             ),
           ],
         ),

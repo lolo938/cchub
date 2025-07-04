@@ -56,38 +56,81 @@ class AuthService {
   // Sign in with Google
   static Future<AuthResult> signInWithGoogle() async {
     try {
+      print('🔵 Starting Google Sign-In process...');
+
       final googleUser = await GoogleSignIn().signIn();
+      print(
+          '🔵 Google Sign-In dialog result: ${googleUser != null ? "User selected" : "User cancelled"}');
+
       if (googleUser == null) {
+        print('🔴 Google Sign-In was cancelled by user');
         return AuthResult.error('Google sign-in was canceled.');
       }
 
+      print('🔵 Getting authentication tokens from Google...');
+      print('🔵 Google User Email: ${googleUser.email}');
+      print('🔵 Google User Name: ${googleUser.displayName}');
+
       final googleAuth = await googleUser.authentication;
+      print('🔵 Got Google Auth tokens');
+      print('🔵 Access Token exists: ${googleAuth.accessToken != null}');
+      print('🔵 ID Token exists: ${googleAuth.idToken != null}');
+
       final credential = GoogleAuthProvider.credential(
         accessToken: googleAuth.accessToken,
         idToken: googleAuth.idToken,
       );
+      print('🔵 Created Firebase credential');
 
+      print('🔵 Signing in to Firebase with Google credential...');
       final userCredential =
           await _firebaseAuth.signInWithCredential(credential);
       final user = userCredential.user;
+      print(
+          '🔵 Firebase sign-in result: ${user != null ? "Success" : "Failed"}');
 
       if (user != null) {
+        print('🔵 User signed in successfully. UID: ${user.uid}');
+        print('🔵 Checking if user exists in Firestore...');
+
         final userDoc =
             await _firestore.collection('users').doc(user.uid).get();
+        print('🔵 User exists in Firestore: ${userDoc.exists}');
+
         if (!userDoc.exists) {
+          print('🔵 Creating new user document in Firestore...');
           await _createUserDocument(user, UserRole.parent, {
             'name': user.displayName,
           });
+          print('🔵 Creating wallet for new user...');
           await WalletService.createWallet(user.uid);
+          print('🔵 New user setup complete');
         }
+
+        print('🔵 Updating FCM token...');
         await NotificationService.updateUserFCMToken(user.uid);
+
+        print('🔵 Getting user role...');
         final role = await getUserRole(user.uid) ?? UserRole.parent;
+        print('🔵 User role: $role');
+
+        print('✅ Google Sign-In completed successfully!');
         return AuthResult.success(user: user, role: role);
       }
+
+      print('🔴 Google sign-in failed - user is null');
       return AuthResult.error('Google sign-in failed.');
     } on FirebaseAuthException catch (e) {
+      print('🔴 FirebaseAuthException during Google Sign-In:');
+      print('🔴 Error code: ${e.code}');
+      print('🔴 Error message: ${e.message}');
+      print('🔴 Error details: ${e.toString()}');
       return AuthResult.error(_getAuthErrorMessage(e.code));
-    } catch (e) {
+    } catch (e, stackTrace) {
+      print('🔴 Unexpected error during Google Sign-In:');
+      print('🔴 Error type: ${e.runtimeType}');
+      print('🔴 Error message: ${e.toString()}');
+      print('🔴 Stack trace: $stackTrace');
       return AuthResult.error('An unexpected error occurred: ${e.toString()}');
     }
   }

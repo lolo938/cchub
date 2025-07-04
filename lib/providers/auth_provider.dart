@@ -292,17 +292,31 @@ class AuthController extends StateNotifier<AuthState> {
 
   // Sign in with Google
   Future<void> signInWithGoogle() async {
+    print('🟦 AuthController: Starting Google Sign-In...');
     state = state.copyWith(isLoading: true, error: null);
     try {
+      print('🟦 AuthController: Calling AuthService.signInWithGoogle()...');
       final result = await AuthService.signInWithGoogle();
+      print(
+          '🟦 AuthController: Result received - Success: ${result.isSuccess}');
+
       if (!result.isSuccess) {
+        print(
+            '🟥 AuthController: Sign-In failed with error: ${result.errorMessage}');
         state = state.copyWith(
           isLoading: false,
           error: result.errorMessage,
         );
+      } else {
+        print(
+            '🟩 AuthController: Sign-In successful! User: ${result.user?.email}');
       }
       // Success will be handled by auth state change listener
-    } catch (e) {
+    } catch (e, stackTrace) {
+      print('🟥 AuthController: Exception caught during Google Sign-In:');
+      print('🟥 Error type: ${e.runtimeType}');
+      print('🟥 Error message: ${e.toString()}');
+      print('🟥 Stack trace: $stackTrace');
       state = state.copyWith(
         isLoading: false,
         error: e.toString(),
